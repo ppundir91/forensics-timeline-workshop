@@ -24,8 +24,21 @@ def find_login_sequences(rows, min_failures=3, window_minutes=5):
     Parameters are positive numbers. Use loops, dictionaries, lists, sorted,
     and the imported timedelta. No additional packages are needed.
     """
-    # TODO 1: replace this raise with your implementation.
-    raise NotImplementedError('Complete find_login_sequences')
+    window = timedelta(minutes=window_minutes)
+    alerts = []
+    for s in rows:
+        if s['result'] != 'SUCCESS':
+            continue
+        t = s['timestamp']
+        fails = [r for r in rows if r['result'] == 'FAIL'
+                 and (r['username'], r['source_ip'], r['host']) == (s['username'], s['source_ip'], s['host'])
+                 and t - window <= r['timestamp'] < t]
+        if len(fails) >= min_failures:
+            fails.sort(key=lambda r: (r['timestamp'], r['event_id']))
+            alerts.append({'username': s['username'], 'source_ip': s['source_ip'], 'host': s['host'],
+                           'session_id': s['session_id'], 'success_id': s['event_id'],
+                           'success_time': t, 'failure_ids': [r['event_id'] for r in fails]})
+    return sorted(alerts, key=lambda a: (a['success_time'], a['success_id']))
 
 def correlate_downloads(alerts, file_rows, followup_minutes=10):
     """Enrich each alert with file activity; return a new list of new dicts.
@@ -44,8 +57,21 @@ def correlate_downloads(alerts, file_rows, followup_minutes=10):
     Do not mutate either input or its nested lists. Do not merge sessions based
     only on a shared account. No hardcoded IDs or outcomes; no extra packages.
     """
-    # TODO 2: replace this raise with your implementation.
-    raise NotImplementedError('Complete correlate_downloads')
+    results = []
+    for a in alerts:
+        t = a['success_time']
+        end = t + timedelta(minutes=followup_minutes)
+        hits = [r for r in file_rows
+                if (r['username'], r['host'], r['session_id']) == (a['username'], a['host'], a['session_id'])
+                and r['action'] == 'DOWNLOAD' and r['result'] == 'SUCCESS'
+                and t <= r['timestamp'] <= end]
+        hits.sort(key=lambda r: (r['timestamp'], r['event_id']))
+        new = dict(a, failure_ids=list(a['failure_ids']))
+        new['download_ids'] = [r['event_id'] for r in hits]
+        new['download_count'] = len(hits)
+        new['total_bytes'] = sum(r['bytes'] for r in hits)
+        results.append(new)
+    return sorted(results, key=lambda x: (-x['total_bytes'], x['success_time'], x['success_id']))
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
